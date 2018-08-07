@@ -35,6 +35,7 @@ import com.verily.genomewarp.utils.VcfToVariant;
 import htsjdk.samtools.liftover.LiftOver;
 import htsjdk.samtools.util.Interval;
 import htsjdk.samtools.util.SequenceUtil;
+import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFFileReader;
 import htsjdk.variant.vcf.VCFConstants;
 import htsjdk.variant.vcf.VCFContigHeaderLine;
@@ -155,6 +156,11 @@ public final class GenomeWarpSerial {
 
     @Parameter(description = "Path to uncompressed raw query gVCF file", names = "--raw_query_gvcf")
     public String rawQueryGvcf = null;
+
+    @Parameter(description = "Window size for splitting BED file regions. "
+        + "Smaller window size helps to avoid having regions with complex variations. It may improve the throughput",
+        names = "--bed_window_size")
+    public Integer bedWindowSize = 100;
 }
 
   // Used exclusively to facilitate storing
@@ -256,6 +262,107 @@ public final class GenomeWarpSerial {
     }
 
     return matches;
+  }
+
+  // TODO: docs
+  private static List<GenomeRange> generateBEDFromVCF(VCFFileReader vcfReader) {
+    List<GenomeRange> toReturn = new ArrayList<>();
+    for (final VariantContext var: vcfReader) {
+      // TODO: check that start and end positions are valid
+      // htsjdk start/end are both 1-based closed
+      GenomeRange curr = new GenomeRange(var.getChr(), var.getStart() - 6, var.getEnd() + 5);
+      toReturn.add(curr);
+    }
+    return toReturn;
+  }
+
+  private static void extendWithSplittedRegion(List<GenomeRange> regions, GenomeRange toAdd) {
+    long pos = toAdd.getStart();
+    int windowSize = ARGS.bedWindowSize;
+    for (; pos + windowSize <= toAdd.getEnd(); pos += windowSize) {
+      regions.add(new GenomeRange(toAdd.getChromosome(), pos, pos + windowSize));
+    }
+    if (pos != toAdd.getEnd()) {
+      regions.add(new GenomeRange(toAdd.getChromosome(), pos, toAdd.getEnd()));
+    }
+  }
+
+  // TODO: docs
+  private static List<GenomeRange> mergeRegionsFromQueryBEDAndVariants(
+      List<GenomeRange> queryBED, List<GenomeRange> fromVcfBED) {
+    List<GenomeRange> mergedBed = new ArrayList<>();
+    ListIterator<GenomeRange> queryIt = queryBED.listIterator();
+    ListIterator<GenomeRange> vcfIt = fromVcfBED.listIterator();
+    GenomeRange queryRegion = null;
+    GenomeRange vcfRegion = null;
+    boolean addVcf = true;
+    while (queryIt.hasNext() && vcfIt.hasNext()) {
+      if (queryRegion == null) {
+        queryRegion = queryIt.next();
+      }
+      if (vcfRegion == null) {
+        vcfRegion = vcfIt.next();
+        addVcf = true;
+      }
+      if (!queryRegion.getChromosome().equals(vcfRegion.getChromosome())) {
+        if (queryRegion.getChromosome().compareTo(vcfRegion.getChromosome()) < 0) {
+          while (queryIt.hasNext() &&
+                  (queryRegion = queryIt.next()).getChromosome().compareTo(vcfRegion.getChromosome()) < 0) {
+            extendWithSplittedRegion(mergedBed, queryRegion);
+          }
+        } else {
+          while (vcfIt.hasNext() &&
+              (vcfRegion = vcfIt.next()).getChromosome().compareTo(queryRegion.getChromosome()) < 0);
+          addVcf = true;
+        }
+        continue;
+      }
+      // no intersection between query bed and vcf region
+      if (queryRegion.getEnd() <= vcfRegion.getStart()) {
+        extendWithSplittedRegion(mergedBed, queryRegion);
+        queryRegion = null;
+      }
+      else if (queryRegion.getStart() >= vcfRegion.getEnd()) {
+        vcfRegion = null;
+      }
+      // query bed and vcf regions intersect
+      // query bed region starts first
+      else if (queryRegion.getStart() <= vcfRegion.getStart()) {
+        if (queryRegion.getStart() < vcfRegion.getStart()) {
+          extendWithSplittedRegion(mergedBed,
+              new GenomeRange(queryRegion.getChromosome(), queryRegion.getStart(), vcfRegion.getStart()));
+        }
+        mergedBed.add(vcfRegion);
+        addVcf = false; // vcfRegion can have intersection with the next query region
+        if (queryRegion.getEnd() <= vcfRegion.getEnd()) {
+          queryRegion = null;
+        } else {
+          queryRegion = new GenomeRange(queryRegion.getChromosome(), vcfRegion.getEnd(), queryRegion.getEnd());
+          vcfRegion = null;
+        }
+      }
+      // vcf region starts first
+      else if (queryRegion.getStart() > vcfRegion.getStart()) {
+        if (addVcf) {
+          mergedBed.add(vcfRegion);
+          addVcf = false;
+        }
+        if (queryRegion.getEnd() <= vcfRegion.getEnd()) {
+          queryRegion = null;
+        } else {
+          queryRegion = new GenomeRange(queryRegion.getChromosome(), vcfRegion.getEnd(), queryRegion.getEnd());
+          vcfRegion = null;
+        }
+      }
+      else {
+        fail("unexpected ranges combination, query: " + queryRegion.toString() + ", vcf: " + vcfRegion.toString());
+      }
+    }
+    while (queryIt.hasNext()) {
+      queryRegion = queryIt.next();
+      extendWithSplittedRegion(mergedBed, queryRegion);
+    }
+    return mergedBed;
   }
 
   private static List<GenomeRange> massageBED(List<GenomeRange> inBED) {
@@ -634,31 +741,50 @@ public final class GenomeWarpSerial {
    * then performs liftover on BED, then classifies regions
    * based on pre- and post- liftover regions.
    */
-  private static List<HomologousRange> processAndSaveBed(String inputBed, Fasta queryFasta,
+  private static List<HomologousRange> processAndSaveBed(String inputBed, String inputVcf,
+      Fasta queryFasta,
       Fasta targetFasta) {
     // Open necessary readers
     BufferedReader bedReader = null;
+    VCFFileReader vcfReader = null;
     try {
       logger.log(Level.INFO, "Reading BED");
       bedReader = Files.newBufferedReader(Paths.get(inputBed), UTF_8);
+      logger.log(Level.INFO, "Reading VCF");
+      vcfReader = new VCFFileReader(new File(inputVcf), false);
     } catch (IOException ex) {
       fail("failed to parse input BED/FASTA/VCF file(s): " + ex.getMessage());
     }
 
     // Takes the input BED and splits at non-DNA characters
     logger.log(Level.INFO, "Split DNA at non-DNA characters");
-    List<GenomeRange> dnaOnlyBED = null;
+    List<GenomeRange> dnaOnlyInputBED = null;
     try {
-      if ((dnaOnlyBED = splitAtNonDNA(queryFasta, bedReader)) == null) {
+      if ((dnaOnlyInputBED = splitAtNonDNA(queryFasta, bedReader)) == null) {
         fail("failed to generate reference genome");
       }
     } catch (IOException ex) {
       fail("failed to read from input bed: " + ex.getMessage());
     }
 
+    logger.log(Level.INFO, "Generating regions from variants");
+    List<GenomeRange> fromVcfBED = generateBEDFromVCF(vcfReader);
+
+    Collections.sort(fromVcfBED);
+    Collections.sort(dnaOnlyInputBED);
+
+    logger.log(Level.INFO, "Removing overlap from VCF ranges");
+    fromVcfBED = omitOverlap(fromVcfBED);
+
+    logger.log(Level.INFO, "Merging query regions with regions from VCF");
+    List<GenomeRange> mergedBed = mergeRegionsFromQueryBEDAndVariants(dnaOnlyInputBED, fromVcfBED);
+
+    logger.log(Level.INFO, String.format("Removing overlap in %d BED record(s)", mergedBed.size()));
+    List<GenomeRange> processedQueryBed = omitOverlap(mergedBed);
+
     // "Massage" the bed
-    logger.log(Level.INFO, String.format("Massaging %d BED record(s)", dnaOnlyBED.size()));
-    List<GenomeRange> queryBED = massageBED(dnaOnlyBED);
+    logger.log(Level.INFO, String.format("Massaging %d BED record(s)", processedQueryBed.size()));
+    List<GenomeRange> queryBED = massageBED(processedQueryBed);
 
     /**
      * LIFTOVER
@@ -705,6 +831,7 @@ public final class GenomeWarpSerial {
 
     return namedRegions;
   }
+
 
   public static void main(String[] args) {
     JCommander parser = new JCommander(ARGS);
@@ -759,7 +886,7 @@ public final class GenomeWarpSerial {
     }
 
     if (!ARGS.onlyGenomeWarp) {
-      namedRegions = processAndSaveBed(queryBedToProcess, queryFasta, targetFasta);
+      namedRegions = processAndSaveBed(queryBedToProcess, queryVcfToProcess, queryFasta, targetFasta);
     } else {
       logger.log(Level.INFO, "Region data from files");
       BufferedReader regionsFile = null;

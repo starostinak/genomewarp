@@ -187,6 +187,8 @@ public final class GenomeWarpSerial {
 
   private static final String VCF_PART_NAME = "/vcfChunk.vcf.part";
 
+  private static final int VARIANT_CONTEXT_SIZE = 5;
+
   private static void fail(String message) {
     logger.log(Level.SEVERE, message);
     throw new RuntimeException(message);
@@ -270,21 +272,24 @@ public final class GenomeWarpSerial {
     for (final VariantContext var: vcfReader) {
       // TODO: check that start and end positions are valid
       // htsjdk start/end are both 1-based closed
-      GenomeRange curr = new GenomeRange(var.getChr(), var.getStart() - 6, var.getEnd() + 5);
+      GenomeRange curr = new GenomeRange(var.getChr(),
+              var.getStart() - VARIANT_CONTEXT_SIZE - 1, var.getEnd() + VARIANT_CONTEXT_SIZE);
       toReturn.add(curr);
     }
     return toReturn;
   }
 
-  private static void extendWithSplittedRegion(List<GenomeRange> regions, GenomeRange toAdd) {
-    long pos = toAdd.getStart();
+  private static List<GenomeRange> splitRegion(GenomeRange region) {
+    List<GenomeRange> toReturn = new ArrayList<>();
     int windowSize = ARGS.bedWindowSize;
-    for (; pos + windowSize <= toAdd.getEnd(); pos += windowSize) {
-      regions.add(new GenomeRange(toAdd.getChromosome(), pos, pos + windowSize));
+    long pos = region.getStart();
+    for (; pos + windowSize <= region.getEnd(); pos += windowSize) {
+      toReturn.add(new GenomeRange(region.getChromosome(), pos, pos + windowSize));
     }
-    if (pos != toAdd.getEnd()) {
-      regions.add(new GenomeRange(toAdd.getChromosome(), pos, toAdd.getEnd()));
+    if (pos != region.getEnd()) {
+      toReturn.add(new GenomeRange(region.getChromosome(), pos, region.getEnd()));
     }
+    return toReturn;
   }
 
   // TODO: docs
@@ -308,7 +313,7 @@ public final class GenomeWarpSerial {
         if (queryRegion.getChromosome().compareTo(vcfRegion.getChromosome()) < 0) {
           while (queryIt.hasNext() &&
                   (queryRegion = queryIt.next()).getChromosome().compareTo(vcfRegion.getChromosome()) < 0) {
-            extendWithSplittedRegion(mergedBed, queryRegion);
+            mergedBed.addAll(splitRegion(queryRegion));
           }
         } else {
           while (vcfIt.hasNext() &&
@@ -319,7 +324,7 @@ public final class GenomeWarpSerial {
       }
       // no intersection between query bed and vcf region
       if (queryRegion.getEnd() <= vcfRegion.getStart()) {
-        extendWithSplittedRegion(mergedBed, queryRegion);
+        mergedBed.addAll(splitRegion(queryRegion));
         queryRegion = null;
       }
       else if (queryRegion.getStart() >= vcfRegion.getEnd()) {
@@ -329,8 +334,9 @@ public final class GenomeWarpSerial {
       // query bed region starts first
       else if (queryRegion.getStart() <= vcfRegion.getStart()) {
         if (queryRegion.getStart() < vcfRegion.getStart()) {
-          extendWithSplittedRegion(mergedBed,
-              new GenomeRange(queryRegion.getChromosome(), queryRegion.getStart(), vcfRegion.getStart()));
+          mergedBed.addAll(splitRegion(
+                  new GenomeRange(queryRegion.getChromosome(), queryRegion.getStart(), vcfRegion.getStart())
+          ));
         }
         mergedBed.add(vcfRegion);
         addVcf = false; // vcfRegion can have intersection with the next query region
@@ -360,7 +366,7 @@ public final class GenomeWarpSerial {
     }
     while (queryIt.hasNext()) {
       queryRegion = queryIt.next();
-      extendWithSplittedRegion(mergedBed, queryRegion);
+      mergedBed.addAll(splitRegion(queryRegion));
     }
     return mergedBed;
   }
@@ -779,12 +785,9 @@ public final class GenomeWarpSerial {
     logger.log(Level.INFO, "Merging query regions with regions from VCF");
     List<GenomeRange> mergedBed = mergeRegionsFromQueryBEDAndVariants(dnaOnlyInputBED, fromVcfBED);
 
-    logger.log(Level.INFO, String.format("Removing overlap in %d BED record(s)", mergedBed.size()));
-    List<GenomeRange> processedQueryBed = omitOverlap(mergedBed);
-
     // "Massage" the bed
-    logger.log(Level.INFO, String.format("Massaging %d BED record(s)", processedQueryBed.size()));
-    List<GenomeRange> queryBED = massageBED(processedQueryBed);
+    logger.log(Level.INFO, String.format("Massaging %d BED record(s)", mergedBed.size()));
+    List<GenomeRange> queryBED = massageBED(mergedBed);
 
     /**
      * LIFTOVER

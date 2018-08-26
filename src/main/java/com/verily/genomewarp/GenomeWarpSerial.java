@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -222,14 +223,15 @@ public final class GenomeWarpSerial {
    *
    * @param refFasta the reference genome, containing the string bases
    * @param bed a BufferedReader containing the range reads
-   * @return an arraylist of GenomeRanges only containing valid DNA characters
+   * @return a hashmap of chromosome to arraylist of GenomeRanges only containing valid DNA characters
    */
-  public static List<GenomeRange> splitAtNonDNA(Fasta refFasta, BufferedReader bed)
+  public static Map<String, List<GenomeRange>> splitAtNonDNA(Fasta refFasta, BufferedReader bed)
       throws IOException {
 
     String line;
     String pastChr = "";
-    List<GenomeRange> matches = new ArrayList<>();
+    Map<String, List<GenomeRange>> matches = new HashMap<>();
+    List<GenomeRange> currMatches = null;
     while ((line = bed.readLine()) != null) {
       String[] range = line.trim().split("\\s+");
       if (range.length < 3) {
@@ -243,6 +245,8 @@ public final class GenomeWarpSerial {
       if (!chr.equals(pastChr)) {
         logger.log(Level.INFO, String.format("Now processing %s", chr));
         pastChr = chr;
+        currMatches = new ArrayList<>();
+        matches.put(chr, currMatches);
       }
 
       String chrSubSeq = refFasta.get(chr, start, end);
@@ -254,7 +258,7 @@ public final class GenomeWarpSerial {
       while (matchDNASeq.find()) {
         GenomeRange currRange = new GenomeRange(chr, start + matchDNASeq.start(),
             start + matchDNASeq.end());
-        matches.add(currRange);
+        currMatches.add(currRange);
         splitNum++;
       }
       if (splitNum > 1) {
@@ -266,19 +270,37 @@ public final class GenomeWarpSerial {
     return matches;
   }
 
-  // TODO: docs
-  private static List<GenomeRange> generateBEDFromVCF(VCFFileReader vcfReader) {
-    List<GenomeRange> toReturn = new ArrayList<>();
+  /**
+   * Generates set of genome ranges from the variants in the VCF file
+   *
+   * For each variant in the input VCF, it will create a region corresponding to the this variant
+   * padded with VARIANT_CONTEXT_SIZE bps from each side.
+   *
+   * @param vcfReader the input VCF file reader
+   * @return a hashmap of chromosome to arraylist of GenomeRanges corresponsing to variants in the inpit VCF
+   */
+  private static Map<String, List<GenomeRange>> generateBEDFromVCF(VCFFileReader vcfReader) {
+    Map<String, List<GenomeRange>> toReturn = new HashMap<>();
     for (final VariantContext var: vcfReader) {
       // TODO: check that start and end positions are valid
       // htsjdk start/end are both 1-based closed
       GenomeRange curr = new GenomeRange(var.getChr(),
               var.getStart() - VARIANT_CONTEXT_SIZE - 1, var.getEnd() + VARIANT_CONTEXT_SIZE);
-      toReturn.add(curr);
+      if (!toReturn.containsKey(curr.getChromosome())) {
+        toReturn.put(curr.getChromosome(), new ArrayList<GenomeRange>());
+      }
+      toReturn.get(curr.getChromosome()).add(curr);
     }
     return toReturn;
   }
 
+
+  /**
+   * Splits the given region and returns a list subregions of at most ARGS.bedWindowSize size.
+   *
+   * @param region GenomeRange to split
+   * @return list of subregions generated from the input region
+   */
   private static List<GenomeRange> splitRegion(GenomeRange region) {
     List<GenomeRange> toReturn = new ArrayList<>();
     int windowSize = ARGS.bedWindowSize;
@@ -292,83 +314,92 @@ public final class GenomeWarpSerial {
     return toReturn;
   }
 
-  // TODO: docs
+  /**
+   * Generates set of genome ranges by merging regions from input BED and regions generated from VCF variants.
+   *
+   * The merging strategy is the following: any VCF region that doesn't overlap query BED will omitted.
+   * Any query region that overlap a variant are truncated to the start of the variant region.
+   * Variant regions that overlap any query region will be included in the result.
+   * All regions from query bed are splitted to have at most bedWindowSize length.
+   *
+   * @param queryBED list of genome ranges from the query BED file coming from the same chromosome
+   * @param fromVcfBED list of genome ranges generated from VCF file coming from the same chromosome
+   * @return arraylist of genome ranges merged from queryBED and fromVcfBED
+   */
   private static List<GenomeRange> mergeRegionsFromQueryBEDAndVariants(
       List<GenomeRange> queryBED, List<GenomeRange> fromVcfBED) {
     List<GenomeRange> mergedBed = new ArrayList<>();
     ListIterator<GenomeRange> queryIt = queryBED.listIterator();
     ListIterator<GenomeRange> vcfIt = fromVcfBED.listIterator();
-    GenomeRange queryRegion = null;
-    GenomeRange vcfRegion = null;
-    boolean addVcf = true;
-    while (queryIt.hasNext() && vcfIt.hasNext()) {
-      if (queryRegion == null) {
-        queryRegion = queryIt.next();
-      }
+    GenomeRange queryRegion = GenomeWarpUtils.nextOrNull(queryIt);
+    GenomeRange vcfRegion = GenomeWarpUtils.nextOrNull(vcfIt);
+
+    while (queryRegion != null) {
       if (vcfRegion == null) {
-        vcfRegion = vcfIt.next();
-        addVcf = true;
+          mergedBed.addAll(splitRegion(queryRegion));
+          queryRegion = GenomeWarpUtils.nextOrNull(queryIt);
+          continue;
       }
+
       if (!queryRegion.getChromosome().equals(vcfRegion.getChromosome())) {
-        if (queryRegion.getChromosome().compareTo(vcfRegion.getChromosome()) < 0) {
-          while (queryIt.hasNext() &&
-                  (queryRegion = queryIt.next()).getChromosome().compareTo(vcfRegion.getChromosome()) < 0) {
-            mergedBed.addAll(splitRegion(queryRegion));
-          }
-        } else {
-          while (vcfIt.hasNext() &&
-              (vcfRegion = vcfIt.next()).getChromosome().compareTo(queryRegion.getChromosome()) < 0);
-          addVcf = true;
-        }
-        continue;
+        fail("inputs must contain data from a single chromosome");
       }
-      // no intersection between query bed and vcf region
+
       if (queryRegion.getEnd() <= vcfRegion.getStart()) {
         mergedBed.addAll(splitRegion(queryRegion));
-        queryRegion = null;
+        queryRegion = GenomeWarpUtils.nextOrNull(queryIt);
       }
-      else if (queryRegion.getStart() >= vcfRegion.getEnd()) {
-        vcfRegion = null;
-      }
-      // query bed and vcf regions intersect
-      // query bed region starts first
-      else if (queryRegion.getStart() <= vcfRegion.getStart()) {
-        if (queryRegion.getStart() < vcfRegion.getStart()) {
-          mergedBed.addAll(splitRegion(
-                  new GenomeRange(queryRegion.getChromosome(), queryRegion.getStart(), vcfRegion.getStart())
-          ));
-        }
-        mergedBed.add(vcfRegion);
-        addVcf = false; // vcfRegion can have intersection with the next query region
-        if (queryRegion.getEnd() <= vcfRegion.getEnd()) {
-          queryRegion = null;
-        } else {
-          queryRegion = new GenomeRange(queryRegion.getChromosome(), vcfRegion.getEnd(), queryRegion.getEnd());
-          vcfRegion = null;
-        }
-      }
-      // vcf region starts first
-      else if (queryRegion.getStart() > vcfRegion.getStart()) {
-        if (addVcf) {
-          mergedBed.add(vcfRegion);
-          addVcf = false;
-        }
-        if (queryRegion.getEnd() <= vcfRegion.getEnd()) {
-          queryRegion = null;
-        } else {
-          queryRegion = new GenomeRange(queryRegion.getChromosome(), vcfRegion.getEnd(), queryRegion.getEnd());
-          vcfRegion = null;
-        }
+      else if (vcfRegion.getEnd() <= queryRegion.getStart()) {
+        vcfRegion = GenomeWarpUtils.nextOrNull(vcfIt);
       }
       else {
-        fail("unexpected ranges combination, query: " + queryRegion.toString() + ", vcf: " + vcfRegion.toString());
+        if (queryRegion.getStart() < vcfRegion.getStart()) {
+          mergedBed.addAll(splitRegion(
+              new GenomeRange(queryRegion.getChromosome(), queryRegion.getStart(),
+                  vcfRegion.getStart())
+          ));
+        }
+        mergedBed.add(new GenomeRange(vcfRegion.getChromosome(),
+            Math.max(vcfRegion.getStart(), queryRegion.getStart()),
+            Math.min(vcfRegion.getEnd(), queryRegion.getEnd())));
+        if (queryRegion.getEnd() > vcfRegion.getEnd()) {
+          queryRegion = new GenomeRange(queryRegion.getChromosome(), vcfRegion.getEnd(),
+              queryRegion.getEnd());
+          vcfRegion = GenomeWarpUtils.nextOrNull(vcfIt);
+        } else {
+          queryRegion = GenomeWarpUtils.nextOrNull(queryIt);
+        }
       }
     }
-    while (queryIt.hasNext()) {
-      queryRegion = queryIt.next();
-      mergedBed.addAll(splitRegion(queryRegion));
-    }
     return mergedBed;
+  }
+
+  private static List<GenomeRange> mergeOverlaps(List<GenomeRange> toMerge) {
+    GenomeRange maxRange = null;
+    List<GenomeRange> toReturn = new ArrayList<>();
+    for (GenomeRange currRange: toMerge) {
+      if (maxRange != null) {
+        if (!currRange.getChromosome().equals(maxRange.getChromosome())) {
+          fail("Found ranges from different chromosomes");
+        }
+        if (currRange.getStart() < maxRange.getStart()) {
+          fail("Input regions are not sorted by pos");
+        }
+
+        if (maxRange.getEnd() < currRange.getStart()) {
+          toReturn.add(maxRange);
+          maxRange = currRange;
+        } else if (maxRange.getEnd() < currRange.getEnd()) {
+          maxRange = new GenomeRange(maxRange.getChromosome(), maxRange.getStart(), currRange.getEnd());
+        }
+      } else {
+        maxRange = currRange;
+      }
+    }
+    if (maxRange != null) {
+      toReturn.add(maxRange);
+    }
+    return toReturn;
   }
 
   private static List<GenomeRange> massageBED(List<GenomeRange> inBED) {
@@ -377,7 +408,7 @@ public final class GenomeWarpSerial {
     Collections.sort(inBED);
     int i = 1;
     for (GenomeRange currRange : inBED) {
-      String lineName = "elt." + Integer.toString(i);
+      String lineName = currRange.getChromosome() + "." + Integer.toString(i);
       currRange.setName(lineName);
 
       toReturn.add(currRange);
@@ -395,14 +426,13 @@ public final class GenomeWarpSerial {
    * range. Furthermore, this function requires the input BED be sorted
    * by chromosome and starting position.
    *
-   * @param inBED the array of BED ranges to be analyzed
+   * @param inBED the array of BED ranges to be analyzed. All ranges must come from the same chromosome.
    * @return an arraylist omitting any BED regions which overlap
    */
   public static List<GenomeRange> omitOverlap(List<GenomeRange> inBED) {
     GenomeRange prevRange = null;
     GenomeRange maxRange = null;
     boolean omitPrev = true;
-    Set<String> seenChromosomes = new HashSet<>();
 
     List<GenomeRange> nonOverlappingBED = new ArrayList<>();
 
@@ -410,20 +440,12 @@ public final class GenomeWarpSerial {
 
       // Check that input BED is sorted
       if (prevRange != null) {
-        if (!currRange.getChromosome().equals(prevRange.getChromosome())
-            && seenChromosomes.contains(currRange.getChromosome())) {
-          fail("Output bed of liftover is not sorted by chr");
+        if (!currRange.getChromosome().equals(prevRange.getChromosome())) {
+          fail("Found ranges from different chromosomes");
         }
-        if (currRange.getChromosome().equals(prevRange.getChromosome())
-            && currRange.getStart() < prevRange.getStart()) {
+        if (currRange.getStart() < prevRange.getStart()) {
           fail("Output bed of liftover is not sorted by pos");
         }
-      }
-      seenChromosomes.add(currRange.getChromosome());
-
-      if (prevRange != null && maxRange != null
-          && !prevRange.getChromosome().equals(maxRange.getChromosome())) {
-        fail("Max interval is not on the same chromosome as prev interval");
       }
 
       boolean omitCurr = currRange.overlaps(maxRange);
@@ -433,7 +455,7 @@ public final class GenomeWarpSerial {
         nonOverlappingBED.add(prevRange);
       }
 
-      if (prevRange != null && prevRange.getChromosome().equals(currRange.getChromosome())) {
+      if (prevRange != null) {
         if (maxRange == null) {
           fail("Something is amiss in omitOverlap");
         }
@@ -573,9 +595,9 @@ public final class GenomeWarpSerial {
     return ranges;
   }
 
-  private static List<GenomeRange> performLiftOver(List<GenomeRange> inRange) {
+  private static Map<String, List<GenomeRange>> performLiftOver(List<GenomeRange> inRange) {
 
-    List<GenomeRange> toReturn = new ArrayList<>();
+    Map<String, List<GenomeRange>> toReturn = new HashMap<>();
 
     LiftOver liftOverTool = new LiftOver(new File(ARGS.liftOverChainPath));
 
@@ -604,7 +626,10 @@ public final class GenomeWarpSerial {
         GenomeRange toAdd = new GenomeRange(liftedInterval.getSequence(),
             liftedInterval.getStart() - 1, liftedInterval.getEnd(), liftedInterval.getName(),
             liftedInterval.isPositiveStrand());
-        toReturn.add(toAdd);
+        if (!toReturn.containsKey(liftedInterval.getSequence())) {
+          toReturn.put(liftedInterval.getSequence(), new ArrayList<GenomeRange>());
+        }
+        toReturn.get(liftedInterval.getSequence()).add(toAdd);
       }
 
       if ((100 * current++) / all > currentMarker) {
@@ -764,9 +789,9 @@ public final class GenomeWarpSerial {
 
     // Takes the input BED and splits at non-DNA characters
     logger.log(Level.INFO, "Split DNA at non-DNA characters");
-    List<GenomeRange> dnaOnlyInputBED = null;
+    Map<String, List<GenomeRange>> dnaOnlyInputBEDPerChromosome = null;
     try {
-      if ((dnaOnlyInputBED = splitAtNonDNA(queryFasta, bedReader)) == null) {
+      if ((dnaOnlyInputBEDPerChromosome = splitAtNonDNA(queryFasta, bedReader)) == null) {
         fail("failed to generate reference genome");
       }
     } catch (IOException ex) {
@@ -774,38 +799,45 @@ public final class GenomeWarpSerial {
     }
 
     logger.log(Level.INFO, "Generating regions from variants");
-    List<GenomeRange> fromVcfBED = generateBEDFromVCF(vcfReader);
+    Map<String, List<GenomeRange>> fromVcfBEDPerChromosome = generateBEDFromVCF(vcfReader);
 
-    Collections.sort(fromVcfBED);
-    Collections.sort(dnaOnlyInputBED);
+    List<GenomeRange> queryBED = new ArrayList<>();
 
-    logger.log(Level.INFO, "Removing overlap from VCF ranges");
-    fromVcfBED = omitOverlap(fromVcfBED);
+    for (String chromosome: dnaOnlyInputBEDPerChromosome.keySet()) {
+      List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
+      List<GenomeRange> inputBEDChr = dnaOnlyInputBEDPerChromosome.get(chromosome);
+      Collections.sort(fromVcfBEDChr);
+      Collections.sort(inputBEDChr);
 
-    logger.log(Level.INFO, "Merging query regions with regions from VCF");
-    List<GenomeRange> mergedBed = mergeRegionsFromQueryBEDAndVariants(dnaOnlyInputBED, fromVcfBED);
+      logger.log(Level.INFO, "Merging overlap from VCF ranges");
+      fromVcfBEDChr = mergeOverlaps(fromVcfBEDChr);
 
-    // "Massage" the bed
-    logger.log(Level.INFO, String.format("Massaging %d BED record(s)", mergedBed.size()));
-    List<GenomeRange> queryBED = massageBED(mergedBed);
+      logger.log(Level.INFO, String.format("Merging query regions with regions from VCF (%d records)", fromVcfBEDChr.size()));
+      List<GenomeRange> mergedBed = mergeRegionsFromQueryBEDAndVariants(inputBEDChr, fromVcfBEDChr);
+
+      // "Massage" the bed
+      logger.log(Level.INFO, String.format("Massaging %d BED record(s)", mergedBed.size()));
+      queryBED.addAll(massageBED(mergedBed));
+    }
 
     /**
      * LIFTOVER
      **/
 
     logger.log(Level.INFO, String.format("Performing liftover on %d ranges", queryBED.size()));
-    List<GenomeRange> liftedBED = performLiftOver(queryBED);
-
+    Map<String, List<GenomeRange>> liftedBEDPerChromosome = performLiftOver(queryBED);
+    List<GenomeRange> targetBED = new ArrayList<>();
     /**
      * POST LIFTOVER
      **/
+    for (List<GenomeRange> liftedBEDChr: liftedBEDPerChromosome.values()) {
+      Collections.sort(liftedBEDChr);
 
-    Collections.sort(liftedBED);
+      logger.log(Level.INFO, "Removing overlap");
 
-    logger.log(Level.INFO, "Removing overlap");
-
-    // Remove overlap in processed BED file
-    List<GenomeRange> targetBED = omitOverlap(liftedBED);
+      // Remove overlap in processed BED file
+      targetBED.addAll(omitOverlap(liftedBEDChr));
+    }
 
     logger.log(Level.INFO, "Starting join regions and analysis");
 

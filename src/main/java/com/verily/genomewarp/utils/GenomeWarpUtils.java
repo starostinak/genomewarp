@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -375,6 +376,13 @@ public class GenomeWarpUtils {
         .setTargetStrand(strand ? TargetStrand.POSITIVE_STRAND : TargetStrand.NEGATIVE_STRAND)
         .setRegionType(RegionType.valueOf(parts[7]))
         .build();
+  }
+
+  public static<T> T nextOrNull(Iterator<T> it) {
+    if (it.hasNext()) {
+      return it.next();
+    }
+    return null;
   }
 
 }

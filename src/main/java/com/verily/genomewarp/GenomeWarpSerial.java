@@ -967,7 +967,7 @@ public final class GenomeWarpSerial {
     VCFHeader vcfHeader = vcfReader.getFileHeader();
     ArrayList<String> vcfSampleNames = vcfHeader.getSampleNamesInOrder();
     if (vcfSampleNames.size() == 0) {
-      fail("input VCF file has no call set groups");
+      fail("input VCF file has no callset groups");
     }
     final boolean keepRefRefCalls = ARGS.keepHomozygousReferenceCalls;
 

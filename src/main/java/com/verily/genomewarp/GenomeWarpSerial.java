@@ -61,7 +61,6 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -161,7 +160,12 @@ public final class GenomeWarpSerial {
     @Parameter(description = "Window size for splitting BED file regions. "
         + "Smaller window size helps to avoid having regions with complex variations. It may improve the throughput",
         names = "--bed_window_size")
-    public Integer bedWindowSize = 100;
+    public Integer bedWindowSize = 10000;
+
+    @Parameter(description = "Skip improved regions preprocessing. If enabled, the output will be equialent to v1.0. "
+      + "Otherwise GenomeWarp splits bed regions in order to improve handling of complex genome transformations",
+      names = "--simplified_regions_preproc")
+    public Boolean simplifiedRegionsPreprocessing = false;
 }
 
   // Used exclusively to facilitate storing
@@ -405,7 +409,6 @@ public final class GenomeWarpSerial {
   private static List<GenomeRange> massageBED(List<GenomeRange> inBED) {
     List<GenomeRange> toReturn = new ArrayList<>();
 
-    Collections.sort(inBED);
     int i = 1;
     for (GenomeRange currRange : inBED) {
       String lineName = currRange.getChromosome() + "." + Integer.toString(i);
@@ -777,12 +780,10 @@ public final class GenomeWarpSerial {
       Fasta targetFasta) {
     // Open necessary readers
     BufferedReader bedReader = null;
-    VCFFileReader vcfReader = null;
+    boolean improvedPreprocessing = !ARGS.simplifiedRegionsPreprocessing;
     try {
       logger.log(Level.INFO, "Reading BED");
       bedReader = Files.newBufferedReader(Paths.get(inputBed), UTF_8);
-      logger.log(Level.INFO, "Reading VCF");
-      vcfReader = new VCFFileReader(new File(inputVcf), false);
     } catch (IOException ex) {
       fail("failed to parse input BED/FASTA/VCF file(s): " + ex.getMessage());
     }
@@ -798,35 +799,50 @@ public final class GenomeWarpSerial {
       fail("failed to read from input bed: " + ex.getMessage());
     }
 
-    logger.log(Level.INFO, "Generating regions from variants");
-    Map<String, List<GenomeRange>> fromVcfBEDPerChromosome = generateBEDFromVCF(vcfReader);
+    Map<String, List<GenomeRange>> fromVcfBEDPerChromosome = null;
+    if (improvedPreprocessing) {
+      VCFFileReader vcfReader = new VCFFileReader(new File(inputVcf), false);
+
+      logger.log(Level.INFO, "Generating regions from variants");
+      fromVcfBEDPerChromosome = generateBEDFromVCF(vcfReader);
+    }
 
     List<GenomeRange> queryBED = new ArrayList<>();
 
+    /**
+     * PRE PROCESSING
+     */
     for (String chromosome: dnaOnlyInputBEDPerChromosome.keySet()) {
-      List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
       List<GenomeRange> inputBEDChr = dnaOnlyInputBEDPerChromosome.get(chromosome);
-      Collections.sort(fromVcfBEDChr);
       Collections.sort(inputBEDChr);
 
-      logger.log(Level.INFO, "Merging overlap from VCF ranges");
-      fromVcfBEDChr = mergeOverlaps(fromVcfBEDChr);
+      List<GenomeRange> intermediateBED;
 
-      logger.log(Level.INFO, String.format("Merging query regions with regions from VCF (%d records)", fromVcfBEDChr.size()));
-      List<GenomeRange> mergedBed = mergeRegionsFromQueryBEDAndVariants(inputBEDChr, fromVcfBEDChr);
+      if (improvedPreprocessing) {
+        List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
+        Collections.sort(fromVcfBEDChr);
+
+        logger.log(Level.INFO, "Merging overlap from VCF ranges");
+        fromVcfBEDChr = mergeOverlaps(fromVcfBEDChr);
+
+        logger.log(Level.INFO, String.format("Merging query regions with regions from VCF (%d records)", fromVcfBEDChr.size()));
+        intermediateBED = mergeRegionsFromQueryBEDAndVariants(inputBEDChr, fromVcfBEDChr);
+      } else {
+        intermediateBED = inputBEDChr;
+      }
 
       // "Massage" the bed
-      logger.log(Level.INFO, String.format("Massaging %d BED record(s)", mergedBed.size()));
-      queryBED.addAll(massageBED(mergedBed));
+      logger.log(Level.INFO, String.format("Massaging %d BED record(s)", intermediateBED.size()));
+      queryBED.addAll(massageBED(intermediateBED));
     }
 
     /**
      * LIFTOVER
      **/
-
     logger.log(Level.INFO, String.format("Performing liftover on %d ranges", queryBED.size()));
     Map<String, List<GenomeRange>> liftedBEDPerChromosome = performLiftOver(queryBED);
     List<GenomeRange> targetBED = new ArrayList<>();
+
     /**
      * POST LIFTOVER
      **/

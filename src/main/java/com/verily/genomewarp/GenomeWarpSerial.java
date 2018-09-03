@@ -289,7 +289,7 @@ public final class GenomeWarpSerial {
       // TODO: check that start and end positions are valid
       // htsjdk start/end are both 1-based closed
       GenomeRange curr = new GenomeRange(var.getChr(),
-              var.getStart() - VARIANT_CONTEXT_SIZE - 1, var.getEnd() + VARIANT_CONTEXT_SIZE);
+              var.getStart() - 1, var.getEnd());
       if (!toReturn.containsKey(curr.getChromosome())) {
         toReturn.put(curr.getChromosome(), new ArrayList<GenomeRange>());
       }
@@ -314,6 +314,38 @@ public final class GenomeWarpSerial {
     }
     if (pos != region.getEnd()) {
       toReturn.add(new GenomeRange(region.getChromosome(), pos, region.getEnd()));
+    }
+    return toReturn;
+  }
+
+  private static List<GenomeRange> filterOutNotCoveredVariants(
+      List<GenomeRange> queryBED, List<GenomeRange> fromVcfBED) {
+    List<GenomeRange> toReturn = new ArrayList<>();
+    ListIterator<GenomeRange> queryIt = queryBED.listIterator();
+    ListIterator<GenomeRange> vcfIt = fromVcfBED.listIterator();
+    GenomeRange queryRegion = GenomeWarpUtils.nextOrNull(queryIt);
+    GenomeRange vcfRegion = GenomeWarpUtils.nextOrNull(vcfIt);
+
+    while (queryRegion != null && vcfRegion != null) {
+      if (queryRegion.getEnd() <= vcfRegion.getStart()) {
+        queryRegion = GenomeWarpUtils.nextOrNull(queryIt);
+      } else if (vcfRegion.getEnd() <= queryRegion.getStart()) {
+        vcfRegion = GenomeWarpUtils.nextOrNull(vcfIt);
+      } else {
+        if (queryRegion.includes(vcfRegion)) {
+          toReturn.add(vcfRegion);
+        }
+        vcfRegion = GenomeWarpUtils.nextOrNull(vcfIt);
+      }
+    }
+    return toReturn;
+  }
+
+  private static List<GenomeRange> generatePaddedGenomeRanges(
+      List<GenomeRange> ranges) {
+    List<GenomeRange> toReturn = new ArrayList<>();
+    for (GenomeRange range: ranges) {
+      toReturn.add(new GenomeRange(range.getChromosome(), range.getStart() - VARIANT_CONTEXT_SIZE, range.getEnd() + VARIANT_CONTEXT_SIZE));
     }
     return toReturn;
   }
@@ -363,9 +395,7 @@ public final class GenomeWarpSerial {
                   vcfRegion.getStart())
           ));
         }
-        mergedBed.add(new GenomeRange(vcfRegion.getChromosome(),
-            Math.max(vcfRegion.getStart(), queryRegion.getStart()),
-            Math.min(vcfRegion.getEnd(), queryRegion.getEnd())));
+        mergedBed.add(queryRegion.getIntersection(vcfRegion));
         if (queryRegion.getEnd() > vcfRegion.getEnd()) {
           queryRegion = new GenomeRange(queryRegion.getChromosome(), vcfRegion.getEnd(),
               queryRegion.getEnd());
@@ -822,11 +852,17 @@ public final class GenomeWarpSerial {
         List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
         Collections.sort(fromVcfBEDChr);
 
-        logger.log(Level.INFO, "Merging overlap from VCF ranges");
-        fromVcfBEDChr = mergeOverlaps(fromVcfBEDChr);
+        logger.log(Level.INFO, "Filtering out VCF regions not convered by confident regions");
+        List<GenomeRange> filteredVcfBEDChr = filterOutNotCoveredVariants(inputBEDChr, fromVcfBEDChr);
 
-        logger.log(Level.INFO, String.format("Merging query regions with regions from VCF (%d records)", fromVcfBEDChr.size()));
-        intermediateBED = mergeRegionsFromQueryBEDAndVariants(inputBEDChr, fromVcfBEDChr);
+        logger.log(Level.INFO, "Adding padding to VCF regions");
+        List<GenomeRange> paddedVcfBEDChr = generatePaddedGenomeRanges(filteredVcfBEDChr);
+
+        logger.log(Level.INFO, "Merging overlapping VCF regions");
+        List<GenomeRange> mergedVcfBEDChr = mergeOverlaps(paddedVcfBEDChr);
+
+        logger.log(Level.INFO, String.format("Merging query regions with regions from VCF (%d records)", mergedVcfBEDChr.size()));
+        intermediateBED = mergeRegionsFromQueryBEDAndVariants(inputBEDChr, mergedVcfBEDChr);
       } else {
         intermediateBED = inputBEDChr;
       }

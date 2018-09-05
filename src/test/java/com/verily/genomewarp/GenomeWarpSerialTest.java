@@ -17,6 +17,7 @@
 package com.verily.genomewarp;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableList;
@@ -39,7 +40,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
@@ -110,23 +113,38 @@ public final class GenomeWarpSerialTest {
       BufferedReader testBED = new BufferedReader(new InputStreamReader(stream, UTF_8));
 
       // Define desired result
-      GenomeRange[] wantArray = {
-          new GenomeRange("chr1", 10, 24),
-          new GenomeRange("chr2", 5, 6),
-          new GenomeRange("chr5", 15, 20),
-          new GenomeRange("chr6", 30, 35),
-          new GenomeRange("chr7", 40, 44),
-          new GenomeRange("chr7", 45, 50),
-          new GenomeRange("chr8", 56, 60),
-          new GenomeRange("chr8", 61, 66),
-          new GenomeRange("chr8", 67, 72)};
-      List<GenomeRange> want = Arrays.asList(wantArray);
+      Map<String, List<GenomeRange>> want = new HashMap<String, List<GenomeRange>>() {{
+        put("chr1", new ArrayList<GenomeRange>() {{
+            add(new GenomeRange("chr1", 10, 24));
+        }});
+        put("chr2", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr2", 5, 6));
+        }});
+        put("chr5", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr5", 15, 20));
+        }});
+        put("chr6", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr6", 30, 35));
+        }});
+        put("chr7", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr7", 40, 44));
+          add(new GenomeRange("chr7", 45, 50));
+        }});
+        put("chr8", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr8", 56, 60));
+          add(new GenomeRange("chr8", 61, 66));
+          add(new GenomeRange("chr8", 67, 72));
+        }});
+      }};
 
       // Get test result
-      List<GenomeRange> got =
+      Map<String, List<GenomeRange>> got =
           GenomeWarpSerial.splitAtNonDNA(testFasta, testBED);
 
-      assertTrue(GenomeWarpTestUtils.equivalentRanges(got, want));
+      assertEquals(got.size(), want.size());
+      for(String key: got.keySet()) {
+        assertTrue(GenomeWarpTestUtils.equivalentRanges(got.get(key), want.get(key)));
+      }
     }
 
     private void checkOmitOverlaps(GenomeRange[] in,
@@ -195,18 +213,10 @@ public final class GenomeWarpSerialTest {
           new GenomeRange("chr1", 60, 66),
           new GenomeRange("chr1", 70, 82),
           new GenomeRange("chr1", 80, 86),
-          new GenomeRange("chr2", 10, 21),
-          new GenomeRange("chr3", 10, 21),
-          new GenomeRange("chr3", 100, 210),
-          new GenomeRange("chr3", 220, 230),
-          new GenomeRange("chr3", 225, 230)
       };
       GenomeRange[] want3 = {
           new GenomeRange("chr1", 50, 56),
           new GenomeRange("chr1", 60, 66),
-          new GenomeRange("chr2", 10, 21),
-          new GenomeRange("chr3", 10, 21),
-          new GenomeRange("chr3", 100, 210)
       };
       checkOmitOverlaps(in3, want3);
 
@@ -219,19 +229,9 @@ public final class GenomeWarpSerialTest {
           new GenomeRange("chr1", 60, 66),
           new GenomeRange("chr1", 70, 82),
           new GenomeRange("chr1", 80, 86),
-          new GenomeRange("chr2", 10, 21),
-          new GenomeRange("chr2", 15, 17),
-          new GenomeRange("chr3", 10, 21),
-          new GenomeRange("chr3", 100, 210),
-          new GenomeRange("chr3", 220, 230),
-          new GenomeRange("chr3", 225, 230),
-          new GenomeRange("chrX", 225, 230)
       };
       GenomeRange[] want4 = {
           new GenomeRange("chr1", 60, 66),
-          new GenomeRange("chr3", 10, 21),
-          new GenomeRange("chr3", 100, 210),
-          new GenomeRange("chrX", 225, 230)
       };
       checkOmitOverlaps(in4, want4);
     }
@@ -264,9 +264,9 @@ public final class GenomeWarpSerialTest {
     }
 
     @Test
-    public void testOmitOverlapUnsortedChr() {
+    public void testOmitOverlapDifferentChr() {
       thrown.expect(RuntimeException.class);
-      thrown.expectMessage("Output bed of liftover is not sorted by chr");
+      thrown.expectMessage("Found ranges from different chromosomes");
       GenomeRange[] in = {
           new GenomeRange("chr1", 10, 16),
           new GenomeRange("chr1", 20, 26),

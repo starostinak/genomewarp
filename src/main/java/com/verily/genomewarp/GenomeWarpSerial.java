@@ -234,7 +234,7 @@ public final class GenomeWarpSerial {
 
     String line;
     String pastChr = "";
-    Map<String, List<GenomeRange>> matches = new HashMap<>();
+    Map<String, List<GenomeRange>> matchesPerChr = new HashMap<>();
     List<GenomeRange> currMatches = null;
     while ((line = bed.readLine()) != null) {
       String[] range = line.trim().split("\\s+");
@@ -250,7 +250,7 @@ public final class GenomeWarpSerial {
         logger.log(Level.INFO, String.format("Now processing %s", chr));
         pastChr = chr;
         currMatches = new ArrayList<>();
-        matches.put(chr, currMatches);
+        matchesPerChr.put(chr, currMatches);
       }
 
       String chrSubSeq = refFasta.get(chr, start, end);
@@ -271,7 +271,15 @@ public final class GenomeWarpSerial {
       }
     }
 
-    return matches;
+    Map<String, List<GenomeRange>> nonEmptyMatchesPerChr = new HashMap<>();
+    for (Map.Entry<String, List<GenomeRange>> entry: matchesPerChr.entrySet())
+    {
+      if (!entry.getValue().isEmpty()) {
+        nonEmptyMatchesPerChr.put(entry.getKey(), entry.getValue());
+      }
+    }
+
+    return nonEmptyMatchesPerChr;
   }
 
   /**

@@ -421,14 +421,13 @@ public final class GenomeWarpSerial {
     List<GenomeRange> toReturn = new ArrayList<>();
     for (GenomeRange currRange: toMerge) {
       if (maxRange != null) {
-        if (!currRange.getChromosome().equals(maxRange.getChromosome())) {
-          fail("Found ranges from different chromosomes");
-        }
-        if (currRange.getStart() < maxRange.getStart()) {
+        if (currRange.getChromosome().equals(maxRange.getChromosome())
+            && currRange.getStart() < maxRange.getStart()) {
           fail("Input regions are not sorted by pos");
         }
 
-        if (maxRange.getEnd() < currRange.getStart()) {
+        if (!maxRange.getChromosome().equals(currRange.getChromosome())
+            || maxRange.getEnd() < currRange.getStart()) {
           toReturn.add(maxRange);
           maxRange = currRange;
         } else if (maxRange.getEnd() < currRange.getEnd()) {
@@ -1121,6 +1120,7 @@ public final class GenomeWarpSerial {
 
     logger.log(Level.INFO, "Sorting final BEDs in preparation for output");
     Collections.sort(finalRanges);
+    finalRanges = mergeOverlaps(finalRanges);
     for (GenomeRange currRange : finalRanges) {
       outBed.println(String.format("%s\t%s\t%s", currRange.getChromosome(),
           Long.toString(currRange.getStart()), Long.toString(currRange.getEnd())));

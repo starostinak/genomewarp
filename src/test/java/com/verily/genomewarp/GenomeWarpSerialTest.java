@@ -24,13 +24,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.genomics.v1.Range;
 import com.google.genomics.v1.Variant;
 import com.google.genomics.v1.VariantCall;
-import com.verily.genomewarp.GenomeWarpSerial;
-import com.verily.genomewarp.TransformVariantsInRange;
 import com.verily.genomewarp.HomologousRangeOuterClass.HomologousRange;
 import com.verily.genomewarp.HomologousRangeOuterClass.HomologousRange.RegionType;
 import com.verily.genomewarp.HomologousRangeOuterClass.HomologousRange.TargetStrand;
 import com.verily.genomewarp.utils.Fasta;
 import com.verily.genomewarp.utils.GenomeRange;
+import com.verily.genomewarp.utils.GenomeRangeUtils;
 import com.verily.genomewarp.utils.GenomeWarpTestUtils;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -139,7 +138,7 @@ public final class GenomeWarpSerialTest {
 
       // Get test result
       Map<String, List<GenomeRange>> got =
-          GenomeWarpSerial.splitAtNonDNA(testFasta, testBED);
+          GenomeRangeUtils.splitAtNonDNA(testFasta, testBED);
 
       assertEquals(got.size(), want.size());
       for(String key: got.keySet()) {
@@ -154,7 +153,7 @@ public final class GenomeWarpSerialTest {
       wantList = Arrays.asList(want);
 
       List<GenomeRange> gotList =
-          GenomeWarpSerial.omitOverlap(inList);
+          GenomeRangeUtils.omitOverlap(inList);
 
       assertTrue(GenomeWarpTestUtils.equivalentRanges(gotList, wantList));
     }
@@ -242,7 +241,7 @@ public final class GenomeWarpSerialTest {
     private void checkOmitOverlapsBad(GenomeRange[] in) {
       List<GenomeRange> inList = Arrays.asList(in);
 
-      GenomeWarpSerial.omitOverlap(inList);
+      GenomeRangeUtils.omitOverlap(inList);
     }
 
     @Test
@@ -415,7 +414,7 @@ public final class GenomeWarpSerialTest {
             newRange("chr6", 51, 60),
             newRange("chr6", 51, 60), true));
 
-      List<HomologousRange> got = GenomeWarpSerial.joinRegions(inQuery, inTarget);
+      List<HomologousRange> got = GenomeRangeUtils.joinRegions(inQuery, inTarget);
       assertTrue(GenomeWarpTestUtils.equivalentRangeWithoutType(got, want));
     }
   }

@@ -21,20 +21,30 @@ import com.google.genomics.v1.Position;
 import com.google.genomics.v1.Range;
 import com.google.genomics.v1.Variant;
 import com.google.genomics.v1.VariantCall;
+import com.verily.genomewarp.GenomeWarpSerial;
 import com.verily.genomewarp.HomologousRangeOuterClass.HomologousRange;
 import com.verily.genomewarp.HomologousRangeOuterClass.HomologousRange.RegionType;
 import com.verily.genomewarp.HomologousRangeOuterClass.HomologousRange.TargetStrand;
 import htsjdk.samtools.util.SequenceUtil;
 import htsjdk.samtools.util.StringUtil;
 
+import htsjdk.variant.variantcontext.VariantContext;
+import htsjdk.variant.vcf.VCFFileReader;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Utility functions for performing GenomeWarp
@@ -45,6 +55,17 @@ public class GenomeWarpUtils {
   // Given ~4M variants in a whole human genome (~3B base pairs) implies that each bucket will have
   // BUCKET_SORT_SIZE / (3e9 / 4e6) = 133 variants in it.
   private static final long BUCKET_SORT_SIZE = 100_000L;
+  public static final Pattern dnaSequence = Pattern.compile("[ACTGactg]+");
+  public static final int VARIANT_CONTEXT_SIZE = 5;
+
+  public static void fail(String message) {
+    GenomeWarpSerial.logger.log(Level.SEVERE, message);
+    throw new RuntimeException(message);
+  }
+
+  public static void warn(String message) {
+    GenomeWarpSerial.logger.log(Level.WARNING, message);
+  }
 
   private enum GenotypeCategory {
     REF_HOMOZYGOUS, // Diploid

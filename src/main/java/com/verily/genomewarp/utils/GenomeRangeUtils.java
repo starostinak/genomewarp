@@ -417,8 +417,6 @@ public class GenomeRangeUtils {
   /**
    * Performs preprocessing of the input confident regions.
    *
-   *
-   *
    * @param inputBEDPerChromosome map of chromosome to the list of confident regions. Confident regions must not contain non-DNA characters.
    * @return list of the GenomeRanges ready for lift over to the target genome
    */
@@ -450,7 +448,7 @@ public class GenomeRangeUtils {
   public static List<GenomeRange> generateQueryBEDWithImprovedPreprocessing(
       Map<String, List<GenomeRange>> inputBEDPerChromosome, String inputVcf,
       int bedWindowSize) {
-    List<GenomeRange> queryBED = new ArrayList<>(); 
+    List<GenomeRange> queryBED = new ArrayList<>();
     VCFFileReader vcfReader = new VCFFileReader(new File(inputVcf), false);
 
     GenomeWarpSerial.logger.log(Level.INFO, "Generating regions from variants");
@@ -459,8 +457,6 @@ public class GenomeRangeUtils {
     for (String chromosome: inputBEDPerChromosome.keySet()) {
       List<GenomeRange> inputBEDChr = inputBEDPerChromosome.get(chromosome);
       Collections.sort(inputBEDChr);
-
-      List<GenomeRange> intermediateBED;
 
       List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
       Collections.sort(fromVcfBEDChr);
@@ -478,8 +474,9 @@ public class GenomeRangeUtils {
       GenomeWarpSerial.logger.log(Level.INFO, String
           .format("Merging query regions with regions from VCF (%d records) from chromosome %s",
               mergedVcfBEDChr.size(), chromosome));
-      intermediateBED = mergeRegionsFromQueryBEDAndVariants(inputBEDChr, mergedVcfBEDChr, bedWindowSize);
-      queryBED.addAll(intermediateBED);
+      List<GenomeRange> intermediateBED = mergeRegionsFromQueryBEDAndVariants(
+          inputBEDChr, mergedVcfBEDChr, bedWindowSize);
+      queryBED.addAll(massageBED(intermediateBED));
     }
     return queryBED;
   }

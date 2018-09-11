@@ -451,7 +451,7 @@ public final class GenomeWarpSerial {
       Fasta targetFasta) {
     // Open necessary readers
     BufferedReader bedReader = null;
-    boolean simplifiedPreprocessing = !ARGS.simplifiedRegionsPreprocessing;
+    boolean simplifiedPreprocessing = ARGS.simplifiedRegionsPreprocessing;
     try {
       logger.log(Level.INFO, "Reading BED");
       bedReader = Files.newBufferedReader(Paths.get(inputBed), UTF_8);

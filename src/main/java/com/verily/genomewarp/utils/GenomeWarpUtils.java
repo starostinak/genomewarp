@@ -43,6 +43,7 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,13 +59,13 @@ public class GenomeWarpUtils {
   public static final Pattern dnaSequence = Pattern.compile("[ACTGactg]+");
   public static final int VARIANT_CONTEXT_SIZE = 5;
 
-  public static void fail(String message) {
-    GenomeWarpSerial.logger.log(Level.SEVERE, message);
+  public static void fail(Logger logger, String message) {
+    logger.log(Level.SEVERE, message);
     throw new RuntimeException(message);
   }
 
-  public static void warn(String message) {
-    GenomeWarpSerial.logger.log(Level.WARNING, message);
+  public static void warn(Logger logger, String message) {
+    logger.log(Level.WARNING, message);
   }
 
   private enum GenotypeCategory {

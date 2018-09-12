@@ -294,7 +294,7 @@ public final class GenomeWarpSerial {
 
       Interval liftedInterval = liftOverTool.liftOver(currInterval, ARGS.minMatch);
       if (liftedInterval == null) {
-        GenomeWarpUtils.warn("failed to liftover an interval");
+        GenomeWarpUtils.warn(logger,"failed to liftover an interval");
       } else {
         // Change from one based to 0 based
         GenomeRange toAdd = new GenomeRange(liftedInterval.getSequence(),
@@ -456,7 +456,8 @@ public final class GenomeWarpSerial {
       logger.log(Level.INFO, "Reading BED");
       bedReader = Files.newBufferedReader(Paths.get(inputBed), UTF_8);
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("failed to parse input BED/FASTA/VCF file(s): " + ex.getMessage());
+      GenomeWarpUtils.fail(logger, "failed to parse input BED/FASTA/VCF file(s): "
+          + ex.getMessage());
     }
 
     // Takes the input BED and splits at non-DNA characters
@@ -464,10 +465,10 @@ public final class GenomeWarpSerial {
     Map<String, List<GenomeRange>> dnaOnlyInputBEDPerChromosome = null;
     try {
       if ((dnaOnlyInputBEDPerChromosome = GenomeRangeUtils.splitAtNonDNA(queryFasta, bedReader)) == null) {
-        GenomeWarpUtils.fail("failed to generate reference genome");
+        GenomeWarpUtils.fail(logger, "failed to generate reference genome");
       }
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("failed to read from input bed: " + ex.getMessage());
+      GenomeWarpUtils.fail(logger, "failed to read from input bed: " + ex.getMessage());
     }
 
     /**
@@ -513,14 +514,15 @@ public final class GenomeWarpSerial {
         }
         out.close();
       } catch (IOException ex) {
-        GenomeWarpUtils.fail("failed to write out annotated regions: " + ex.getMessage());
+        GenomeWarpUtils.fail(logger, "failed to write out annotated regions: "
+            + ex.getMessage());
       }
     }
 
     try {
       bedReader.close();
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("failed to close opened buffers: " + ex.getMessage());
+      GenomeWarpUtils.fail(logger, "failed to close opened buffers: " + ex.getMessage());
     }
 
     return namedRegions;
@@ -532,7 +534,7 @@ public final class GenomeWarpSerial {
       parser.parse(args);
     } catch (ParameterException e) {
       parser.usage();
-      GenomeWarpUtils.fail("failed to parse command line args: " + e.getMessage());
+      GenomeWarpUtils.fail(logger, "failed to parse command line args: " + e.getMessage());
     }
 
     List<String> headerStrings = null;
@@ -545,14 +547,16 @@ public final class GenomeWarpSerial {
     final String queryBedToProcess;
     // Query input flag validation.
     if (haveGvcf && (ARGS.rawQueryVcf != null || ARGS.rawQueryBed != null)) {
-      GenomeWarpUtils.fail(
+      GenomeWarpUtils.fail(logger,
           "Arguments (--raw_query_vcf, --raw_query_bed) and --raw_query_gvcf are mutually exclusive");
     }
     if ((ARGS.rawQueryVcf == null) != (ARGS.rawQueryBed == null)) {
-      GenomeWarpUtils.fail("Either both or neither of --raw_query_vcf and --raw_query_bed must be specified");
+      GenomeWarpUtils.fail(logger,
+          "Either both or neither of --raw_query_vcf and --raw_query_bed must be specified");
     }
     if (ARGS.rawQueryGvcf == null && ARGS.rawQueryVcf == null) {
-      GenomeWarpUtils.fail("Either (--raw_query_vcf, --raw_query_bed) or --raw_query_gvcf must be specified");
+      GenomeWarpUtils.fail(logger,
+          "Either (--raw_query_vcf, --raw_query_bed) or --raw_query_gvcf must be specified");
     }
     if (haveGvcf) {
       queryVcfToProcess = ARGS.workDir + File.separator + "from_gvcf.vcf";
@@ -560,7 +564,7 @@ public final class GenomeWarpSerial {
       logger.log(Level.INFO, "Checking and processing gVCF");
       if (!GvcfToVcfAndBed.saveVcfAndBedFromGvcf(ARGS.rawQueryGvcf, queryVcfToProcess,
           queryBedToProcess)) {
-        GenomeWarpUtils.fail("Failed to read gVCF/write VCF or BED files");
+        GenomeWarpUtils.fail(logger, "Failed to read gVCF/write VCF or BED files");
       }
       logger.log(Level.INFO, "Recognized gVCF format - using extracted VCF and BED files as input");
     } else {
@@ -575,7 +579,7 @@ public final class GenomeWarpSerial {
       queryFasta = new Fasta(ARGS.refQueryFASTA);
       targetFasta = new Fasta(ARGS.refTargetFASTA);
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("failed initial setup: " + ex.getMessage());
+      GenomeWarpUtils.fail(logger, "failed initial setup: " + ex.getMessage());
     }
 
     if (!ARGS.onlyGenomeWarp) {
@@ -597,7 +601,8 @@ public final class GenomeWarpSerial {
 
         regionsFile.close();
       } catch (IOException ex) {
-        GenomeWarpUtils.fail("failed to parse input FASTA/Region file(s): " + ex.getMessage());
+        GenomeWarpUtils.fail(logger, "failed to parse input FASTA/Region file(s): "
+            + ex.getMessage());
       }
     }
 
@@ -614,7 +619,7 @@ public final class GenomeWarpSerial {
       logger.log(Level.INFO, "Saving into discrete files of ~50000 variants");
       mapping = saveToFile(groupedVariants, headerStrings, queryChr, targetChr);
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("Failed to open vcf file");
+      GenomeWarpUtils.fail(logger, "Failed to open vcf file");
     }
 
     /**
@@ -625,7 +630,7 @@ public final class GenomeWarpSerial {
     VCFHeader vcfHeader = vcfReader.getFileHeader();
     ArrayList<String> vcfSampleNames = vcfHeader.getSampleNamesInOrder();
     if (vcfSampleNames.size() == 0) {
-      GenomeWarpUtils.fail("input VCF file has no callset groups");
+      GenomeWarpUtils.fail(logger, "input VCF file has no callset groups");
     }
     final boolean keepRefRefCalls = ARGS.keepHomozygousReferenceCalls;
 
@@ -637,7 +642,7 @@ public final class GenomeWarpSerial {
           UTF_8));
       outVcf = new FileOutputStream(new File(ARGS.outputVariantsFile));
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("failed to write variants and confidently-called regions to file: "
+      GenomeWarpUtils.fail(logger, "failed to write variants and confidently-called regions to file: "
           + ex.getMessage());
     }
 
@@ -645,7 +650,7 @@ public final class GenomeWarpSerial {
     try {
       vcfHeader = warpHeader(vcfHeader, targetFasta.getReferenceNameAndLengthInInputOrder());
     } catch (IllegalArgumentException ex) {
-      GenomeWarpUtils.fail("warpHeader failure: " + ex.getMessage());
+      GenomeWarpUtils.fail(logger, "warpHeader failure: " + ex.getMessage());
     }
 
     int parts = mapping.size();
@@ -663,7 +668,7 @@ public final class GenomeWarpSerial {
         thisFile.deleteOnExit();
         variants = VcfToVariant.convertVcfToVariant(thisFile, false);
       } catch (IOException ex) {
-        GenomeWarpUtils.fail("Failed to open partial vcf");
+        GenomeWarpUtils.fail(logger, "Failed to open partial vcf");
       }
 
       if (ARGS.removeInfoField) {
@@ -679,7 +684,7 @@ public final class GenomeWarpSerial {
         queryFasta.preload(queryChr.get(Integer.valueOf(part)));
         targetFasta.preload(targetChr.get(Integer.valueOf(part)));
       } catch (IOException ex) {
-        GenomeWarpUtils.fail(String.format("Failed to preload FASTA: %s", ex.getCause()));
+        GenomeWarpUtils.fail(logger, String.format("Failed to preload FASTA: %s", ex.getCause()));
       }
 
       List<HomologousRange> keyList = new ArrayList<>(intermediate.keySet());
@@ -732,7 +737,7 @@ public final class GenomeWarpSerial {
       outBed.close();
       outVcf.close();
     } catch (IOException ex) {
-      GenomeWarpUtils.fail("failed to close opened buffers: " + ex.getMessage());
+      GenomeWarpUtils.fail(logger, "failed to close opened buffers: " + ex.getMessage());
     }
 
   }

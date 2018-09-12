@@ -18,10 +18,14 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 
 public class GenomeRangeUtils {
+
+  private static final Logger logger = Logger.getLogger(GenomeWarpSerial.class.getName());
 
   /**
    * Splits a given set of genome ranges at non-DNA characters
@@ -38,12 +42,12 @@ public class GenomeRangeUtils {
 
     String line;
     String pastChr = "";
-    Map<String, List<GenomeRange>> matchesPerChr = new HashMap<>();
+    Map<String, List<GenomeRange>> matchesPerChr = new TreeMap<>();
     List<GenomeRange> currMatches = null;
     while ((line = bed.readLine()) != null) {
       String[] range = line.trim().split("\\s+");
       if (range.length < 3) {
-        GenomeWarpUtils.fail("input BED file has less than 3 columns");
+        GenomeWarpUtils.fail(logger, "input BED file has less than 3 columns");
       }
 
       String chr = range[0];
@@ -51,7 +55,7 @@ public class GenomeRangeUtils {
       long end = Long.parseLong(range[2]);
 
       if (!chr.equals(pastChr)) {
-        GenomeWarpSerial.logger.log(Level.INFO, String.format("Now processing %s", chr));
+        logger.log(Level.INFO, String.format("Now processing %s", chr));
         pastChr = chr;
         currMatches = new ArrayList<>();
         matchesPerChr.put(chr, currMatches);
@@ -70,7 +74,7 @@ public class GenomeRangeUtils {
         splitNum++;
       }
       if (splitNum > 1) {
-        GenomeWarpSerial.logger.log(Level.INFO,
+        logger.log(Level.INFO,
           String.format("%s (%d, %d) was split into %d regions", chr, start, end, splitNum));
       }
     }
@@ -95,7 +99,7 @@ public class GenomeRangeUtils {
    * @return a map of chromosome to the list of GenomeRanges corresponding to the variants in the input VCF
    */
   public static Map<String, List<GenomeRange>> generateBEDFromVCF(VCFFileReader vcfReader) {
-    Map<String, List<GenomeRange>> toReturn = new HashMap<>();
+    Map<String, List<GenomeRange>> toReturn = new TreeMap<>();
     for (final VariantContext var: vcfReader) {
       // TODO: check that start and end positions are valid
       // htsjdk start/end are both 1-based closed
@@ -150,7 +154,7 @@ public class GenomeRangeUtils {
 
     while (queryRegion != null && vcfRegion != null) {
       if (!queryRegion.getChromosome().equals(vcfRegion.getChromosome())) {
-        GenomeWarpUtils.fail("inputs must contain the data from a single chromosome");
+        GenomeWarpUtils.fail(logger, "inputs must contain the data from a single chromosome");
       }
 
       if (queryRegion.getEnd() <= vcfRegion.getStart()) {
@@ -215,7 +219,7 @@ public class GenomeRangeUtils {
       }
 
       if (!queryRegion.getChromosome().equals(vcfRegion.getChromosome())) {
-        GenomeWarpUtils.fail("inputs must contain data from a single chromosome");
+        GenomeWarpUtils.fail(logger,"inputs must contain data from a single chromosome");
       }
 
       if (queryRegion.getEnd() <= vcfRegion.getStart()) {
@@ -258,7 +262,7 @@ public class GenomeRangeUtils {
       if (maxRange != null) {
         if (currRange.getChromosome().equals(maxRange.getChromosome())
             && currRange.getStart() < maxRange.getStart()) {
-          GenomeWarpUtils.fail("Input regions are not sorted by pos");
+          GenomeWarpUtils.fail(logger, "Input regions are not sorted by pos");
         }
 
         if (!maxRange.getChromosome().equals(currRange.getChromosome())
@@ -324,10 +328,10 @@ public class GenomeRangeUtils {
       // Check that input BED is sorted
       if (prevRange != null) {
         if (!currRange.getChromosome().equals(prevRange.getChromosome())) {
-          GenomeWarpUtils.fail("Found ranges from different chromosomes");
+          GenomeWarpUtils.fail(logger,"Found ranges from different chromosomes");
         }
         if (currRange.getStart() < prevRange.getStart()) {
-          GenomeWarpUtils.fail("Output bed of liftover is not sorted by pos");
+          GenomeWarpUtils.fail(logger, "Output bed of liftover is not sorted by pos");
         }
       }
 
@@ -340,7 +344,7 @@ public class GenomeRangeUtils {
 
       if (prevRange != null) {
         if (maxRange == null) {
-          GenomeWarpUtils.fail("Something is amiss in omitOverlap");
+          GenomeWarpUtils.fail(logger, "Something is amiss in omitOverlap");
         }
         if (maxRange.getEnd() < currRange.getEnd()) {
           maxRange = new GenomeRange(maxRange.getChromosome(), maxRange.getStart(),
@@ -379,7 +383,7 @@ public class GenomeRangeUtils {
     // with the same name
     for (GenomeRange currRange : queryBED) {
       if (mappedQueries.containsKey(currRange.getName())) {
-        GenomeWarpUtils.fail("found duplicated BED names in query BED");
+        GenomeWarpUtils.fail(logger, "found duplicated BED names in query BED");
       }
 
       mappedQueries.put(currRange.getName(), currRange);
@@ -389,7 +393,7 @@ public class GenomeRangeUtils {
     // with the same name
     for (GenomeRange currTarget : targetBED) {
       if (seenTargetNames.contains(currTarget.getName())) {
-        GenomeWarpUtils.fail("found duplicated BED names in target BED");
+        GenomeWarpUtils.fail(logger, "found duplicated BED names in target BED");
       }
       seenTargetNames.add(currTarget.getName());
 
@@ -427,7 +431,7 @@ public class GenomeRangeUtils {
       List<GenomeRange> inputBEDChr = inputBEDPerChromosome.get(chromosome);
       Collections.sort(inputBEDChr);
 
-      GenomeWarpSerial.logger.log(Level.INFO, String.format("Massaging %d BED record(s) from chromosome %s",
+      logger.log(Level.INFO, String.format("Massaging %d BED record(s) from chromosome %s",
           inputBEDChr.size(), chromosome));
       queryBED.addAll(massageBED(inputBEDChr));
     }
@@ -437,8 +441,8 @@ public class GenomeRangeUtils {
   /**
    * Performs improved preprocessing of the input confident regions
    *
-   * Splits the confident regions with respect of the variants in the input VCF in order to improve
-   * handling of complex rearrangements between query and target genome versions.
+   * Splits the confident regions to do local remapping around variants in the input VCF to maximize
+   * recall of variants
    *
    * @param inputBEDPerChromosome map of chromosome to the list of confident regions. Confident regions must not contain non-DNA characters.
    * @param inputVcf input VCF file
@@ -451,7 +455,7 @@ public class GenomeRangeUtils {
     List<GenomeRange> queryBED = new ArrayList<>();
     VCFFileReader vcfReader = new VCFFileReader(new File(inputVcf), false);
 
-    GenomeWarpSerial.logger.log(Level.INFO, "Generating regions from variants");
+    logger.log(Level.INFO, "Generating regions from variants");
     Map<String, List<GenomeRange>> fromVcfBEDPerChromosome = generateBEDFromVCF(vcfReader);
 
     for (String chromosome: inputBEDPerChromosome.keySet()) {
@@ -461,17 +465,18 @@ public class GenomeRangeUtils {
       List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
       Collections.sort(fromVcfBEDChr);
 
-      GenomeWarpSerial.logger.log(Level.INFO, "Filtering out VCF regions not convered by confident regions");
+      logger.log(Level.INFO,
+          "Filtering out VCF regions not convered by confident regions");
       List<GenomeRange> filteredVcfBEDChr = filterOutNotCoveredVariants(inputBEDChr,
           fromVcfBEDChr);
 
-      GenomeWarpSerial.logger.log(Level.INFO, "Adding padding to VCF regions");
+      logger.log(Level.INFO, "Adding padding to VCF regions");
       List<GenomeRange> paddedVcfBEDChr = generatePaddedGenomeRanges(filteredVcfBEDChr);
 
-      GenomeWarpSerial.logger.log(Level.INFO, "Merging overlapping VCF regions");
+      logger.log(Level.INFO, "Merging overlapping VCF regions");
       List<GenomeRange> mergedVcfBEDChr = mergeOverlaps(paddedVcfBEDChr);
 
-      GenomeWarpSerial.logger.log(Level.INFO, String
+      logger.log(Level.INFO, String
           .format("Merging query regions with regions from VCF (%d records) from chromosome %s",
               mergedVcfBEDChr.size(), chromosome));
       List<GenomeRange> intermediateBED = mergeRegionsFromQueryBEDAndVariants(

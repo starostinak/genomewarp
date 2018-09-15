@@ -31,8 +31,10 @@ import com.verily.genomewarp.utils.Fasta;
 import com.verily.genomewarp.utils.GenomeRange;
 import com.verily.genomewarp.utils.GenomeRangeUtils;
 import com.verily.genomewarp.utils.GenomeWarpTestUtils;
+import htsjdk.variant.vcf.VCFFileReader;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -42,6 +44,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
@@ -77,6 +80,7 @@ public final class GenomeWarpSerialTest {
   public static final class UtilityTests {
 
     private static final String FASTA_PATH = "test.fa";
+    private static final String VCF_PATH = "test.vcf";
 
 
     private String fakeBED(String[][] in) {
@@ -112,7 +116,7 @@ public final class GenomeWarpSerialTest {
       BufferedReader testBED = new BufferedReader(new InputStreamReader(stream, UTF_8));
 
       // Define desired result
-      Map<String, List<GenomeRange>> want = new HashMap<String, List<GenomeRange>>() {{
+      Map<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
         put("chr1", new ArrayList<GenomeRange>() {{
             add(new GenomeRange("chr1", 10, 24));
         }});
@@ -144,6 +148,214 @@ public final class GenomeWarpSerialTest {
       for(String key: got.keySet()) {
         assertTrue(GenomeWarpTestUtils.equivalentRanges(got.get(key), want.get(key)));
       }
+    }
+
+    @Test
+    public void testGenerateBEDFromVCF() {
+      String file = GenomeWarpSerialTest.class.getClassLoader().getResource(VCF_PATH).getFile();
+      VCFFileReader testVcf = new VCFFileReader(new File(file), false);
+
+      Map<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
+        put("19", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("19", 14369, 14370));
+        }});
+        put("20", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("20", 17329, 17330));
+          add(new GenomeRange("20", 1110695, 1110696));
+          add(new GenomeRange("20", 1230236, 1230237));
+          add(new GenomeRange("20", 1234566, 1234569));
+          add(new GenomeRange("20", 2234567, 2234568));
+          add(new GenomeRange("20", 2234568, 2234569));
+        }});
+        put("Y", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("Y", 17329, 17330));
+        }});
+      }};
+
+      Map<String, List<GenomeRange>> got = GenomeRangeUtils.generateBEDFromVCF(testVcf);
+      assertEquals(got.size(), want.size());
+      for(String key: got.keySet()) {
+        assertTrue(GenomeWarpTestUtils.equivalentRanges(got.get(key), want.get(key)));
+      }
+    }
+
+    private void checkSplitRegions(GenomeRange in,
+        GenomeRange[] want) {
+      List<GenomeRange> wantList;
+      wantList = Arrays.asList(want);
+
+      List<GenomeRange> got =
+          GenomeRangeUtils.splitRegion(in, 10);
+
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(got, wantList));
+    }
+
+    @Test
+    public void testSplitRegions() {
+      GenomeRange in1 = new GenomeRange("chr1", 4, 10);
+      GenomeRange[] want1 = {
+          new GenomeRange("chr1", 4, 10)
+      };
+      checkSplitRegions(in1, want1);
+
+      GenomeRange in2 = new GenomeRange("chr1", 0, 10);
+      GenomeRange[] want2 = {
+          new GenomeRange("chr1", 0, 10)
+      };
+      checkSplitRegions(in2, want2);
+
+      GenomeRange in3 = new GenomeRange("chr1", 18, 45);
+      GenomeRange[] want3 = {
+          new GenomeRange("chr1", 18, 28),
+          new GenomeRange("chr1", 28, 38),
+          new GenomeRange("chr1", 38, 45),
+      };
+      checkSplitRegions(in3, want3);
+    }
+
+    @Test
+    public void testFilterOutNonCoveredVariants() {
+      GenomeRange[] queryRegions = {
+          new GenomeRange("chr1", 4, 10),
+          new GenomeRange("chr1", 12345, 12545),
+          new GenomeRange("chr1", 15123, 15130),
+          new GenomeRange("chr1", 20000, 40000),
+      };
+
+      GenomeRange[] variantRegions = {
+          new GenomeRange("chr1", 0, 4),
+          new GenomeRange("chr1", 10, 15),
+          new GenomeRange("chr1", 123, 345),
+          new GenomeRange("chr1", 12340, 12348),
+          new GenomeRange("chr1", 12345, 12350),
+          new GenomeRange("chr1", 12400, 12407),
+          new GenomeRange("chr1", 12538, 12540),
+          new GenomeRange("chr1", 12538, 12545),
+          new GenomeRange("chr1", 12538, 12560),
+          new GenomeRange("chr1", 15120, 15140),
+          new GenomeRange("chr1", 15123, 15130),
+          new GenomeRange("chr1", 100000, 100005),
+      };
+
+      GenomeRange[] want = {
+          new GenomeRange("chr1", 12345, 12350),
+          new GenomeRange("chr1", 12400, 12407),
+          new GenomeRange("chr1", 12538, 12540),
+          new GenomeRange("chr1", 12538, 12545),
+          new GenomeRange("chr1", 15123, 15130),
+      };
+
+      List<GenomeRange> got = GenomeRangeUtils.filterOutNotCoveredVariants(
+          Arrays.asList(queryRegions), Arrays.asList(variantRegions));
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(Arrays.asList(want), got));
+    }
+
+    @Test
+    public void testGeneratePaddedGenomeRanges() {
+      GenomeRange[] in = {
+          new GenomeRange("chr1", 12345, 12350),
+          new GenomeRange("chr1", 12400, 12407),
+          new GenomeRange("chr1", 12538, 12540),
+          new GenomeRange("chr1", 12538, 12545),
+          new GenomeRange("chr1", 15123, 15130),
+      };
+
+      GenomeRange[] want = {
+          new GenomeRange("chr1", 12340, 12355),
+          new GenomeRange("chr1", 12395, 12412),
+          new GenomeRange("chr1", 12533, 12545),
+          new GenomeRange("chr1", 12533, 12550),
+          new GenomeRange("chr1", 15118, 15135),
+      };
+
+      List<GenomeRange> got = GenomeRangeUtils.generatePaddedGenomeRanges(Arrays.asList(in));
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(Arrays.asList(want), got));
+    }
+
+    private void checkMergeRegionsFromQueryBEDAndVariants(
+        GenomeRange[] queryBED, GenomeRange[] vcfBED, GenomeRange[] want) {
+      List<GenomeRange> wantList = Arrays.asList(want);
+
+      List<GenomeRange> got = GenomeRangeUtils.mergeRegionsFromQueryBEDAndVariants(
+              Arrays.asList(queryBED), Arrays.asList(vcfBED), 10);
+
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(got, wantList));
+    }
+
+    @Test
+    public void testMergeRegionsFromQueryBEDAndVariants() {
+      GenomeRange[] queryBED1 = {
+        new GenomeRange("chr1", 90, 95),
+        new GenomeRange("chr1", 100, 150),
+      };
+      GenomeRange[] vcfBED1 = {
+        new GenomeRange("chr1", 108, 125),
+      };
+      GenomeRange[] want1 = {
+        new GenomeRange("chr1", 90, 95),
+        new GenomeRange("chr1", 100, 108),
+        new GenomeRange("chr1", 108, 125),
+        new GenomeRange("chr1", 125, 135),
+        new GenomeRange("chr1", 145, 150),
+      };
+
+      checkMergeRegionsFromQueryBEDAndVariants(queryBED1, vcfBED1, want1);
+
+      GenomeRange[] queryBED2 = {
+        new GenomeRange("chr1", 90, 95),
+        new GenomeRange("chr1", 100, 150),
+      };
+      GenomeRange[] vcfBED2 = {
+      };
+      GenomeRange[] want2 = {
+        new GenomeRange("chr1", 90, 95),
+        new GenomeRange("chr1", 100, 110),
+        new GenomeRange("chr1", 100, 120),
+        new GenomeRange("chr1", 100, 140),
+        new GenomeRange("chr1", 100, 150),
+      };
+
+      checkMergeRegionsFromQueryBEDAndVariants(queryBED2, vcfBED2, want2);
+
+      GenomeRange[] queryBED3 = {
+      };
+      GenomeRange[] vcfBED3 = {
+        new GenomeRange("chr1", 108, 125),
+      };
+      GenomeRange[] want3 = {
+      };
+
+      checkMergeRegionsFromQueryBEDAndVariants(queryBED3, vcfBED3, want3);
+
+      GenomeRange[] queryBED4 = {
+        new GenomeRange("chr1", 90, 95),
+        new GenomeRange("chr1", 120, 150),
+        new GenomeRange("chr1", 152, 160),
+        new GenomeRange("chr1", 170, 180),
+        new GenomeRange("chr1", 2000, 2005),
+      };
+      GenomeRange[] vcfBED4 = {
+        new GenomeRange("chr1", 88, 97), // includes confident region
+        new GenomeRange("chr1", 115, 128), // begins before confident region
+        new GenomeRange("chr1", 145, 155), // includes fragments from 2 confident region
+        new GenomeRange("chr1", 170, 175), // simple
+        new GenomeRange("chr1", 178, 188), // the same conf region as previos variant
+      };
+      GenomeRange[] want4 = {
+        new GenomeRange("chr1", 90, 95),
+        new GenomeRange("chr1", 120, 128),
+        new GenomeRange("chr1", 128, 138),
+        new GenomeRange("chr1", 138, 145),
+        new GenomeRange("chr1", 145, 150),
+        new GenomeRange("chr1", 152, 155),
+        new GenomeRange("chr1", 155, 160),
+        new GenomeRange("chr1", 170, 175),
+        new GenomeRange("chr1", 175, 178),
+        new GenomeRange("chr1", 178, 180),
+        new GenomeRange("chr1", 2000, 2005),
+      };
+
+      checkMergeRegionsFromQueryBEDAndVariants(queryBED4, vcfBED4, want4);
     }
 
     private void checkOmitOverlaps(GenomeRange[] in,

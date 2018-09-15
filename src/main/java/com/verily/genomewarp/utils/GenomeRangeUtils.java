@@ -463,6 +463,9 @@ public class GenomeRangeUtils {
       Collections.sort(inputBEDChr);
 
       List<GenomeRange> fromVcfBEDChr = fromVcfBEDPerChromosome.get(chromosome);
+      if (fromVcfBEDChr == null) {
+        continue;
+      }
       Collections.sort(fromVcfBEDChr);
 
       logger.log(Level.INFO,

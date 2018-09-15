@@ -261,7 +261,7 @@ public class GenomeRangeUtils {
     for (GenomeRange currRange: toMerge) {
       if (maxRange != null) {
         if (currRange.getChromosome().equals(maxRange.getChromosome())
-            && currRange.getStart() < maxRange.getStart()) {
+            && currRange.compareTo(maxRange) < 0) {
           GenomeWarpUtils.fail(logger, "Input regions are not sorted by pos");
         }
 

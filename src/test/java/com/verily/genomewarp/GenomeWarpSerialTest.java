@@ -156,19 +156,15 @@ public final class GenomeWarpSerialTest {
       VCFFileReader testVcf = new VCFFileReader(new File(file), false);
 
       Map<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
-        put("19", new ArrayList<GenomeRange>() {{
-          add(new GenomeRange("19", 14369, 14370));
+        put("chr1", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr1", 49, 50));
+          add(new GenomeRange("chr1", 51, 52));
+          add(new GenomeRange("chr1", 119, 122));
+          add(new GenomeRange("chr1", 136, 137));
+          add(new GenomeRange("chr1", 189, 190));
         }});
-        put("20", new ArrayList<GenomeRange>() {{
-          add(new GenomeRange("20", 17329, 17330));
-          add(new GenomeRange("20", 1110695, 1110696));
-          add(new GenomeRange("20", 1230236, 1230237));
-          add(new GenomeRange("20", 1234566, 1234569));
-          add(new GenomeRange("20", 2234567, 2234568));
-          add(new GenomeRange("20", 2234568, 2234569));
-        }});
-        put("Y", new ArrayList<GenomeRange>() {{
-          add(new GenomeRange("Y", 17329, 17330));
+        put("chr2", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr2", 139, 141));
         }});
       }};
 
@@ -296,6 +292,7 @@ public final class GenomeWarpSerialTest {
         new GenomeRange("chr1", 100, 108),
         new GenomeRange("chr1", 108, 125),
         new GenomeRange("chr1", 125, 135),
+        new GenomeRange("chr1", 135, 145),
         new GenomeRange("chr1", 145, 150),
       };
 
@@ -310,9 +307,10 @@ public final class GenomeWarpSerialTest {
       GenomeRange[] want2 = {
         new GenomeRange("chr1", 90, 95),
         new GenomeRange("chr1", 100, 110),
-        new GenomeRange("chr1", 100, 120),
-        new GenomeRange("chr1", 100, 140),
-        new GenomeRange("chr1", 100, 150),
+        new GenomeRange("chr1", 110, 120),
+        new GenomeRange("chr1", 120, 130),
+        new GenomeRange("chr1", 130, 140),
+        new GenomeRange("chr1", 140, 150),
       };
 
       checkMergeRegionsFromQueryBEDAndVariants(queryBED2, vcfBED2, want2);
@@ -356,6 +354,44 @@ public final class GenomeWarpSerialTest {
       };
 
       checkMergeRegionsFromQueryBEDAndVariants(queryBED4, vcfBED4, want4);
+    }
+
+    @Test
+    public void testMergeOverlaps() {
+      GenomeRange[] in = {
+        new GenomeRange("chr1", 90, 95),
+              new GenomeRange("chr1", 100, 155),
+              new GenomeRange("chr1", 150, 200),
+              new GenomeRange("chr1", 325, 335),
+              new GenomeRange("chr1", 335, 350),
+              new GenomeRange("chr2", 10, 50),
+              new GenomeRange("chr2", 80, 90),
+              new GenomeRange("chr2", 85, 120),
+              new GenomeRange("chr2", 120, 150),
+      };
+      GenomeRange[] want = {
+              new GenomeRange("chr1", 90, 95),
+              new GenomeRange("chr1", 100, 200),
+              new GenomeRange("chr1", 325, 350),
+              new GenomeRange("chr2", 10, 50),
+              new GenomeRange("chr2", 80, 150),
+      };
+
+      List<GenomeRange> got = GenomeRangeUtils.mergeOverlaps(Arrays.asList(in));
+
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(got, Arrays.asList(want)));
+    }
+
+    @Test
+    public void testMergeOverlapsUnsorted() {
+      thrown.expect(RuntimeException.class);
+      thrown.expectMessage("Input regions are not sorted by pos");
+      GenomeRange[] in = {
+              new GenomeRange("chr1", 108, 125),
+              new GenomeRange("chr1", 108, 115),
+              new GenomeRange("chr2", 10, 15),
+      };
+      GenomeRangeUtils.mergeOverlaps(Arrays.asList(in));
     }
 
     private void checkOmitOverlaps(GenomeRange[] in,
@@ -490,6 +526,63 @@ public final class GenomeWarpSerialTest {
           new GenomeRange("chr1", 90, 96)
       };
       checkOmitOverlapsBad(in);
+    }
+
+    @Test
+    public void testSimplifiedRegionsPreprocessing() {
+      Map<String, List<GenomeRange>> in = new TreeMap<String, List<GenomeRange>>() {{
+          put("chr1", new ArrayList<GenomeRange>() {{
+              add(new GenomeRange("chr1", 30, 60));
+          }});
+          put("chr2", new ArrayList<GenomeRange>() {{
+              add(new GenomeRange("chr2", 50, 60));
+              add(new GenomeRange("chr2", 1000, 1020));
+              add(new GenomeRange("chr2", 5, 6));
+          }});
+      }};
+      GenomeRange[] want = {
+          new GenomeRange("chr1", 30, 60),
+          new GenomeRange("chr2", 5, 6),
+          new GenomeRange("chr2", 50, 60),
+          new GenomeRange("chr2", 1000, 1020),
+      };
+
+      List<GenomeRange> got = GenomeRangeUtils.generateQueryBEDWithSimplifiedPreprocessing(in);
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(got, Arrays.asList(want)));
+      assertTrue(!got.get(0).getName().isEmpty());
+    }
+
+    @Test
+    public void testImprovedRegionsPreprocessing() {
+      Map<String, List<GenomeRange>> in = new TreeMap<String, List<GenomeRange>>() {{
+        put("chr1", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr1", 30, 60));
+        }});
+        put("chr2", new ArrayList<GenomeRange>() {{
+          add(new GenomeRange("chr2", 50, 60));
+          add(new GenomeRange("chr2", 1000, 1020));
+          add(new GenomeRange("chr2", 5, 6));
+        }});
+      }};
+
+      // Variants: chr1 - 49:50, 51:52, 119:122, 136:137, 189:190
+      // chr2 - 139:141
+
+      GenomeRange[] want = {
+              new GenomeRange("chr1", 30, 40),
+              new GenomeRange("chr1", 40, 44),
+              new GenomeRange("chr1", 44, 57),
+              new GenomeRange("chr1", 57, 60),
+              new GenomeRange("chr2", 5, 6),
+              new GenomeRange("chr2", 50, 60),
+              new GenomeRange("chr2", 1000, 1010),
+              new GenomeRange("chr2", 1010, 1020),
+      };
+
+      List<GenomeRange> got = GenomeRangeUtils.generateQueryBEDWithImprovedPreprocessing(
+              in, GenomeWarpSerialTest.class.getClassLoader().getResource(VCF_PATH).getFile(), 10);
+      assertTrue(GenomeWarpTestUtils.equivalentRanges(got, Arrays.asList(want)));
+      assertTrue(!got.get(0).getName().isEmpty());
     }
 
     private void checkRegion(AnalyzeRegionsTest t) {

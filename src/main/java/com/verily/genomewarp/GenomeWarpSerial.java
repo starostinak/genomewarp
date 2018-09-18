@@ -162,7 +162,7 @@ public final class GenomeWarpSerial {
         names = "--bed_window_size")
     public Integer bedWindowSize = 10000;
 
-    @Parameter(description = "Skip improved regions preprocessing. If enabled, the output will be equialent to v1.0. "
+    @Parameter(description = "Skip improved regions preprocessing. If enabled, the output will be equialent to v1.0.0. "
       + "Otherwise GenomeWarp splits bed regions in order to improve handling of complex genome transformations",
       names = "--simplified_regions_preproc")
     public Boolean simplifiedRegionsPreprocessing = false;

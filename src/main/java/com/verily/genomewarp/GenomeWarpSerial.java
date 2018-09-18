@@ -61,6 +61,8 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.SortedMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -269,9 +271,9 @@ public final class GenomeWarpSerial {
     return ranges;
   }
 
-  private static Map<String, List<GenomeRange>> performLiftOver(List<GenomeRange> inRange) {
+  private static SortedMap<String, List<GenomeRange>> performLiftOver(List<GenomeRange> inRange) {
 
-    Map<String, List<GenomeRange>> toReturn = new HashMap<>();
+    SortedMap<String, List<GenomeRange>> toReturn = new TreeMap<>();
 
     LiftOver liftOverTool = new LiftOver(new File(ARGS.liftOverChainPath));
 
@@ -294,7 +296,7 @@ public final class GenomeWarpSerial {
 
       Interval liftedInterval = liftOverTool.liftOver(currInterval, ARGS.minMatch);
       if (liftedInterval == null) {
-        GenomeWarpUtils.warn(logger,"failed to liftover an interval");
+        logger.log(Level.WARNING, "failed to liftover an interval");
       } else {
         // Change from one based to 0 based
         GenomeRange toAdd = new GenomeRange(liftedInterval.getSequence(),
@@ -462,7 +464,7 @@ public final class GenomeWarpSerial {
 
     // Takes the input BED and splits at non-DNA characters
     logger.log(Level.INFO, "Split DNA at non-DNA characters");
-    Map<String, List<GenomeRange>> dnaOnlyInputBEDPerChromosome = null;
+    SortedMap<String, List<GenomeRange>> dnaOnlyInputBEDPerChromosome = null;
     try {
       if ((dnaOnlyInputBEDPerChromosome = GenomeRangeUtils.splitAtNonDNA(queryFasta, bedReader)) == null) {
         GenomeWarpUtils.fail(logger, "failed to generate reference genome");
@@ -484,7 +486,7 @@ public final class GenomeWarpSerial {
      * LIFTOVER
      **/
     logger.log(Level.INFO, String.format("Performing liftover on %d ranges", queryBED.size()));
-    Map<String, List<GenomeRange>> liftedBEDPerChromosome = performLiftOver(queryBED);
+    SortedMap<String, List<GenomeRange>> liftedBEDPerChromosome = performLiftOver(queryBED);
     List<GenomeRange> targetBED = new ArrayList<>();
 
     /**

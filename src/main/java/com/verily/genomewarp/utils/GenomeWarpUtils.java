@@ -64,10 +64,6 @@ public class GenomeWarpUtils {
     throw new RuntimeException(message);
   }
 
-  public static void warn(Logger logger, String message) {
-    logger.log(Level.WARNING, message);
-  }
-
   private enum GenotypeCategory {
     REF_HOMOZYGOUS, // Diploid
     HETEROZYGOUS, // Diploid

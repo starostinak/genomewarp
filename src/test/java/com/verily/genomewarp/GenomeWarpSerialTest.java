@@ -44,6 +44,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
 import java.util.TreeMap;
 import org.junit.Rule;
 import org.junit.Test;
@@ -116,7 +117,7 @@ public final class GenomeWarpSerialTest {
       BufferedReader testBED = new BufferedReader(new InputStreamReader(stream, UTF_8));
 
       // Define desired result
-      Map<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
+      SortedMap<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
         put("chr1", new ArrayList<GenomeRange>() {{
             add(new GenomeRange("chr1", 10, 24));
         }});
@@ -141,7 +142,7 @@ public final class GenomeWarpSerialTest {
       }};
 
       // Get test result
-      Map<String, List<GenomeRange>> got =
+      SortedMap<String, List<GenomeRange>> got =
           GenomeRangeUtils.splitAtNonDNA(testFasta, testBED);
 
       assertEquals(got.size(), want.size());
@@ -155,7 +156,7 @@ public final class GenomeWarpSerialTest {
       String file = GenomeWarpSerialTest.class.getClassLoader().getResource(VCF_PATH).getFile();
       VCFFileReader testVcf = new VCFFileReader(new File(file), false);
 
-      Map<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
+      SortedMap<String, List<GenomeRange>> want = new TreeMap<String, List<GenomeRange>>() {{
         put("chr1", new ArrayList<GenomeRange>() {{
           add(new GenomeRange("chr1", 49, 50));
           add(new GenomeRange("chr1", 51, 52));
@@ -168,7 +169,7 @@ public final class GenomeWarpSerialTest {
         }});
       }};
 
-      Map<String, List<GenomeRange>> got = GenomeRangeUtils.generateBEDFromVCF(testVcf);
+      SortedMap<String, List<GenomeRange>> got = GenomeRangeUtils.generateBEDFromVCF(testVcf);
       assertEquals(got.size(), want.size());
       for(String key: got.keySet()) {
         assertTrue(GenomeWarpTestUtils.equivalentRanges(got.get(key), want.get(key)));
@@ -385,7 +386,7 @@ public final class GenomeWarpSerialTest {
     @Test
     public void testMergeOverlapsUnsorted() {
       thrown.expect(RuntimeException.class);
-      thrown.expectMessage("Input regions are not sorted by pos");
+      thrown.expectMessage("input regions are not sorted by position");
       GenomeRange[] in = {
               new GenomeRange("chr1", 108, 125),
               new GenomeRange("chr1", 108, 115),
@@ -495,7 +496,7 @@ public final class GenomeWarpSerialTest {
     @Test
     public void testOmitOverlapUnsortedPos() {
       thrown.expect(RuntimeException.class);
-      thrown.expectMessage("Output bed of liftover is not sorted by pos");
+      thrown.expectMessage("output BED of liftover is not sorted by position");
       GenomeRange[] in = {
           new GenomeRange("chr1", 10, 16),
           new GenomeRange("chr1", 20, 26),
@@ -513,7 +514,7 @@ public final class GenomeWarpSerialTest {
     @Test
     public void testOmitOverlapDifferentChr() {
       thrown.expect(RuntimeException.class);
-      thrown.expectMessage("Found ranges from different chromosomes");
+      thrown.expectMessage("found ranges from different chromosomes");
       GenomeRange[] in = {
           new GenomeRange("chr1", 10, 16),
           new GenomeRange("chr1", 20, 26),
@@ -530,7 +531,7 @@ public final class GenomeWarpSerialTest {
 
     @Test
     public void testSimplifiedRegionsPreprocessing() {
-      Map<String, List<GenomeRange>> in = new TreeMap<String, List<GenomeRange>>() {{
+      SortedMap<String, List<GenomeRange>> in = new TreeMap<String, List<GenomeRange>>() {{
           put("chr1", new ArrayList<GenomeRange>() {{
               add(new GenomeRange("chr1", 30, 60));
           }});
@@ -554,7 +555,7 @@ public final class GenomeWarpSerialTest {
 
     @Test
     public void testImprovedRegionsPreprocessing() {
-      Map<String, List<GenomeRange>> in = new TreeMap<String, List<GenomeRange>>() {{
+      SortedMap<String, List<GenomeRange>> in = new TreeMap<String, List<GenomeRange>>() {{
         put("chr1", new ArrayList<GenomeRange>() {{
           add(new GenomeRange("chr1", 30, 60));
         }});
